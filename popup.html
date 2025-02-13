@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+	<style>
+		:root {
+			--bg-color: #181818; /* Slightly lighter dark background */
+			--text-color: #e0e0e0; /* Softer white text */
+			--accent-color: #64b5f6; /* Muted blue/teal accent */
+			--button-bg: #282828; /* Button background */
+			--button-hover-bg: #383838; /* Button hover background */
+			--border-color: #333; /* Softer border color */
+			--input-bg: #333; /* Input background */
+		}
+
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif; /* System font stack */
+			max-width: 320px;
+			background-color: var(--bg-color);
+			color: var(--text-color);
+			margin: 0; /* Reset body margin */
+			padding: 1rem; /* Add some padding around the body content */
+			box-sizing: border-box; /* Ensure padding is within max-width */
+			line-height: 1.5; /* Improved line spacing for readability */
+		}
+
+		h1 {
+			text-align: center; /* Center align h1 */
+			margin-bottom: 1rem; /* Add margin below h1 */
+			color: var(--text-color); /* Ensure h1 text color is consistent */
+			font-size: 1.7rem; /* Slightly larger font size for h1 */
+			font-weight: bold; /* Make h1 bold */
+		}
+
+		button {
+			cursor: pointer;
+			background-color: var(--button-bg);
+			color: var(--text-color);
+			border: none; /* Remove border for cleaner look */
+			border-radius: 0.3rem; /* Rounded corners for buttons */
+			padding: 0.5rem 1rem; /* Vertical and horizontal padding for buttons */
+			font-size: 1rem;
+			transition: background-color 0.2s ease; /* Smooth hover effect */
+		}
+
+		button:hover {
+			background-color: var(--button-hover-bg);
+		}
+
+		.toggleBtn {
+			height: auto; /* Adjust height to content */
+			width: 100%; /* Full width button */
+			font-size: 1.2rem; /* Slightly smaller font for toggle button */
+			padding: 0.8rem 1rem; /* Adjust padding */
+			display: block; /* Ensure full width */
+			margin-bottom: 1rem; /* Add margin below toggle button */
+		}
+	</style>
+	<body>
+		<h1>YouTube Shorts Scroller</h1>
+		<button class="toggleBtn">Stop</button>
+		<script src="../dist/script.js"></script>
+	</body>
+</html>
