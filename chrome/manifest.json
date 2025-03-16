@@ -1,0 +1,20 @@
+{
+	"manifest_version": 3,
+	"name": "Youtube Shorts Auto Scroll",
+	"description": "Tired of manually scrolling through YouTube Shorts? This lightweight extension automatically plays the next Short as soon as the current one ends.",
+	"author": "theb8821",
+	"version": "1.0.0",
+	"content_scripts": [
+		{
+			"matches": ["https://www.youtube.com/*"],
+			"js": ["./src/content.js"]
+		}
+	],
+	"permissions": ["tabs", "storage"],
+	"background": {
+		"service_worker": "./src/background.js"
+	},
+	"action": {
+		"default_popup": "./popup.html"
+	}
+}
