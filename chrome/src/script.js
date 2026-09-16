@@ -1,60 +1,69 @@
-// VARIABLES
-const YOUTUBE_LINK = 'youtube.com';
-const toggleBtn = document.querySelector('.toggleBtn');
-const validUrls = [`${YOUTUBE_LINK}/shorts`, `${YOUTUBE_LINK}/hashtag/shorts`];
+// Universal browser API reference
+const api = globalThis.browser || globalThis.chrome;
 
-// Create error message element
-const errMsg = document.createElement('div');
-errMsg.style.color = 'red';
-errMsg.style.marginTop = '1rem';
-errMsg.style.textAlign = 'center';
-document.body.appendChild(errMsg);
+const toggleBtn = document.getElementById('toggleBtn');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const errMsg = document.getElementById('errMsg');
 
-getAllSettingsForPopup();
+let currentApplicationState = true;
 
-// Listens to toggle button click
-document.onclick = (e) => {
-	if (e.target.classList.contains('toggleBtn')) {
-		chrome.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
-			if (validUrls.some((url) => tabs[0]?.url?.includes(url))) {
-				try {
-					await chrome.tabs.sendMessage(tabs[0].id, { toggle: true }, (response) => {
-						if (!response?.success) {
-							errMsg.innerText = 'Please refresh the page and try again!';
-						} else {
-							errMsg.innerText = ''; // Clear error message on success
-						}
-					});
-				} catch (error) {
-					errMsg.innerText = 'Error: Could not communicate with the page';
-				}
-			} else {
-				errMsg.innerText = 'Only works for Youtube!';
-			}
-		});
+function renderState(isOn) {
+	currentApplicationState = isOn;
+	if (isOn) {
+		toggleBtn.innerText = 'Stop';
+		toggleBtn.className = 'toggleBtn stop';
+		statusDot.className = 'status-dot active';
+		statusText.innerText = 'Auto-scroll is Active';
+	} else {
+		toggleBtn.innerText = 'Start';
+		toggleBtn.className = 'toggleBtn start';
+		statusDot.className = 'status-dot';
+		statusText.innerText = 'Auto-scroll is Paused';
 	}
-};
-
-function changeToggleButton(result) {
-	toggleBtn.innerText = result ? 'Stop' : 'Start';
-	toggleBtn.classList.remove(result ? 'start' : 'stop');
-	toggleBtn.classList.add(result ? 'stop' : 'start');
 }
 
-function getAllSettingsForPopup() {
-	// Since scrollOnComments feature was removed (as noted in content.js),
-	// we can simplify this function to only handle the toggle button state
-	chrome.storage.onChanged.addListener((result) => {
-		if (result['applicationIsOn']?.newValue !== undefined) {
-			changeToggleButton(result['applicationIsOn'].newValue);
-		}
+// Initialize popup settings
+function initPopup() {
+	api.storage.local.get(['applicationIsOn']).then((result) => {
+		const isOn = result.applicationIsOn ?? true;
+		renderState(isOn);
+	}).catch(() => {
+		renderState(true);
 	});
 
-	chrome.storage.local.get(['applicationIsOn']).then((result) => {
-		if (result['applicationIsOn'] == null) {
-			changeToggleButton(true);
-		} else {
-			changeToggleButton(result['applicationIsOn']);
+	// Listen for state changes (e.g. from keyboard shortcut)
+	api.storage.onChanged.addListener((changes, area) => {
+		if (area === 'local' && changes.applicationIsOn !== undefined) {
+			renderState(changes.applicationIsOn.newValue);
 		}
 	});
 }
+
+// Toggle handler
+toggleBtn.addEventListener('click', async () => {
+	const newState = !currentApplicationState;
+	errMsg.innerText = '';
+
+	// 1. Update storage
+	await api.storage.local.set({ applicationIsOn: newState });
+	renderState(newState);
+
+	// 2. Notify active tab if it is YouTube Shorts
+	try {
+		const tabs = await api.tabs.query({ active: true, currentWindow: true });
+		const activeTab = tabs[0];
+		if (activeTab?.id) {
+			const isShorts = activeTab.url && (activeTab.url.includes('youtube.com/shorts') || activeTab.url.includes('youtube.com/hashtag/shorts'));
+			if (isShorts) {
+				api.tabs.sendMessage(activeTab.id, { toggle: true, state: newState }).catch(() => {
+					// Content script may not be loaded yet or page needs refresh
+				});
+			}
+		}
+	} catch (err) {
+		console.warn('Tab communication error:', err);
+	}
+});
+
+initPopup();

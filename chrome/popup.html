@@ -1,62 +1,169 @@
 <!DOCTYPE html>
 <html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>YouTube Shorts Scroller</title>
 	<style>
 		:root {
-			--bg-color: #181818; /* Slightly lighter dark background */
-			--text-color: #e0e0e0; /* Softer white text */
-			--accent-color: #64b5f6; /* Muted blue/teal accent */
-			--button-bg: #282828; /* Button background */
-			--button-hover-bg: #383838; /* Button hover background */
-			--border-color: #333; /* Softer border color */
-			--input-bg: #333; /* Input background */
+			--bg-color: #181818;
+			--card-bg: #212121;
+			--text-color: #f1f1f1;
+			--text-muted: #aaaaaa;
+			--accent-color: #ff0000;
+			--button-bg: #282828;
+			--button-hover-bg: #383838;
+			--stop-color: #e53935;
+			--stop-hover: #d32f2f;
+			--start-color: #2e7d32;
+			--start-hover: #388e3c;
+			--border-color: #333333;
 		}
 
 		body {
-			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif; /* System font stack */
-			max-width: 320px;
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+			width: 280px;
 			background-color: var(--bg-color);
 			color: var(--text-color);
-			margin: 0; /* Reset body margin */
-			padding: 1rem; /* Add some padding around the body content */
-			box-sizing: border-box; /* Ensure padding is within max-width */
-			line-height: 1.5; /* Improved line spacing for readability */
+			margin: 0;
+			padding: 1.2rem;
+			box-sizing: border-box;
+			line-height: 1.4;
+		}
+
+		.header {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 8px;
+			margin-bottom: 1rem;
+		}
+
+		.header svg {
+			width: 24px;
+			height: 24px;
+			fill: var(--accent-color);
 		}
 
 		h1 {
-			text-align: center; /* Center align h1 */
-			margin-bottom: 1rem; /* Add margin below h1 */
-			color: var(--text-color); /* Ensure h1 text color is consistent */
-			font-size: 1.7rem; /* Slightly larger font size for h1 */
-			font-weight: bold; /* Make h1 bold */
+			margin: 0;
+			font-size: 1.15rem;
+			font-weight: 700;
+			text-align: center;
+			color: var(--text-color);
+		}
+
+		.status-container {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 6px;
+			margin-bottom: 1rem;
+			font-size: 0.85rem;
+			color: var(--text-muted);
+		}
+
+		.status-dot {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background-color: #757575;
+			transition: background-color 0.3s ease;
+		}
+
+		.status-dot.active {
+			background-color: #4caf50;
+			box-shadow: 0 0 6px rgba(76, 175, 80, 0.6);
 		}
 
 		button {
 			cursor: pointer;
-			background-color: var(--button-bg);
-			color: var(--text-color);
-			border: none; /* Remove border for cleaner look */
-			border-radius: 0.3rem; /* Rounded corners for buttons */
-			padding: 0.5rem 1rem; /* Vertical and horizontal padding for buttons */
+			color: #ffffff;
+			border: none;
+			border-radius: 6px;
+			padding: 0.75rem 1rem;
 			font-size: 1rem;
-			transition: background-color 0.2s ease; /* Smooth hover effect */
+			font-weight: 600;
+			transition: background-color 0.2s ease, transform 0.1s ease;
 		}
 
-		button:hover {
-			background-color: var(--button-hover-bg);
+		button:active {
+			transform: scale(0.98);
 		}
 
 		.toggleBtn {
-			height: auto; /* Adjust height to content */
-			width: 100%; /* Full width button */
-			font-size: 1.2rem; /* Slightly smaller font for toggle button */
-			padding: 0.8rem 1rem; /* Adjust padding */
-			display: block; /* Ensure full width */
-			margin-bottom: 1rem; /* Add margin below toggle button */
+			width: 100%;
+			display: block;
+			margin-bottom: 0.8rem;
+			letter-spacing: 0.5px;
+		}
+
+		.toggleBtn.stop {
+			background-color: var(--stop-color);
+		}
+
+		.toggleBtn.stop:hover {
+			background-color: var(--stop-hover);
+		}
+
+		.toggleBtn.start {
+			background-color: var(--start-color);
+		}
+
+		.toggleBtn.start:hover {
+			background-color: var(--start-hover);
+		}
+
+		.shortcut-tip {
+			font-size: 0.78rem;
+			color: var(--text-muted);
+			text-align: center;
+			margin-top: 0.6rem;
+		}
+
+		kbd {
+			background-color: #333333;
+			border-radius: 3px;
+			border: 1px solid #444444;
+			color: #e0e0e0;
+			display: inline-block;
+			font-size: 0.75rem;
+			font-family: monospace;
+			font-weight: 600;
+			padding: 1px 5px;
+			white-space: nowrap;
+		}
+
+		#errMsg {
+			color: #ff5252;
+			font-size: 0.8rem;
+			text-align: center;
+			margin-top: 0.5rem;
+			min-height: 1.2rem;
 		}
 	</style>
-	<body>
-		<h1>YouTube Shorts Scroller</h1>
-		<button class="toggleBtn">Stop</button>
-		<script src="../src/script.js"></script>
-	</body>
+</head>
+<body>
+	<div class="header">
+		<svg viewBox="0 0 24 24">
+			<path d="M10 14.65v-5.3L15 12l-5 2.65zm7.77-4.33c-.77-.32-1.2-.5-1.2-.5L18 9.06c1.84-.96 2.53-3.23 1.56-5.06s-3.24-2.53-5.07-1.56L6 6.94c-1.29.68-2.07 2.04-2 3.49.07 1.42.93 2.67 2.22 3.25.03.01 1.2.5 1.2.5L6 14.93c-1.83.97-2.53 3.24-1.56 5.07.97 1.83 3.24 2.53 5.07 1.56l8.5-4.5c1.29-.68 2.06-2.04 1.99-3.49-.07-1.42-.94-2.68-2.23-3.25z"/>
+		</svg>
+		<h1>Shorts Scroller</h1>
+	</div>
+
+	<div class="status-container">
+		<span class="status-dot active" id="statusDot"></span>
+		<span id="statusText">Auto-scroll is Active</span>
+	</div>
+
+	<button class="toggleBtn stop" id="toggleBtn">Stop</button>
+
+	<div class="shortcut-tip">
+		Tip: Press <kbd>Shift</kbd> + <kbd>S</kbd> to toggle
+	</div>
+
+	<div id="errMsg"></div>
+
+	<script src="./src/script.js"></script>
+</body>
 </html>

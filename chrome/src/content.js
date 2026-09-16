@@ -1,147 +1,320 @@
-// CONSTANT SELECTORS VARIABLES
-const VIDEOS_LIST_SELECTOR = '.reel-video-in-sequence';
-const NEXT_VIDEO_BUTTON_SELECTOR = '#navigation-button-down > ytd-button-renderer > yt-button-shape > button';
-const LIKE_BUTTON_SELECTOR = 'ytd-reel-video-renderer[is-active] #like-button > yt-button-shape > label > button';
-const DISLIKE_BUTTON_SELECTOR = 'ytd-reel-video-renderer[is-active] #dislike-button > yt-button-shape > label > button';
-const COMMENTS_SELECTOR = 'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog > ytd-engagement-panel-section-list-renderer > div';
-// APP VARIABLES
-let scrollOnCommentsCheck = false; // Keep this, default to false as per requirement
+// ============================================================
+// YouTube Shorts Auto Scroller - Content Script
+// ============================================================
 
-// STATE VARIABLES
-let currentVideoIndex = null;
-let applicationIsOn = false;
-let scrollingIsDone = true;
-let lastVideo = null;
-// -------
-async function startAutoScrolling() {
-	if (!applicationIsOn) {
-		applicationIsOn = true;
-		// Save state to chrome storage, so it will be on next time on page load
-		await chrome.storage.local.set({ applicationIsOn: true });
-		if (window.location.href.includes('hashtag/shorts')) {
-			// If on hashtag page, click on a shorts video to start the auto scrolling (WHEN THIS FUNCTION CALLED)
-			document.querySelector("#thumbnail [aria-label='Shorts']").parentElement.parentElement.parentElement.click();
-		}
-	}
-}
-async function stopAutoScrolling() {
-	if (applicationIsOn) {
-		applicationIsOn = false;
-		// Save state to chrome storage, so it will be off next time on page load
-		await chrome.storage.local.set({ applicationIsOn: false });
-	}
-	const currentVideo = document.querySelector("#shorts-container video[tabindex='-1']");
-	// Lets the video loop again
-	if (currentVideo) currentVideo.setAttribute('loop', '');
-}
-async function checkForNewShort() {
-	const currentVideo = document.querySelector("#shorts-container video[tabindex='-1']");
-	// Check to see if the video has loaded
-	if (isNaN(currentVideo?.duration) || currentVideo?.duration == null) return;
-	// Checks if the application is on. If not, lets the video loop again
-	if (!applicationIsOn) return currentVideo.setAttribute('loop', '');
-	else currentVideo.removeAttribute('loop');
-	const newCurrentShortsIndex = Array.from(document.querySelectorAll(VIDEOS_LIST_SELECTOR)).findIndex((e) => e.hasAttribute('is-active'));
-	if (scrollingIsDone /*to prevent double scrolls*/) {
-		if (newCurrentShortsIndex !== currentVideoIndex) {
-			lastVideo?.removeEventListener('ended', videoFinished);
-			lastVideo = currentVideo;
-			currentVideoIndex = newCurrentShortsIndex;
-		}
-		if (!checkIfValidVideo()) {
-			await scrollToNextShort();
-			return;
-		}
-		currentVideo.addEventListener('ended', videoFinished);
-	}
-}
-async function videoFinished() {
-	const currentVideo = document.querySelector("#shorts-container video[tabindex='-1']");
-	if (!applicationIsOn) return currentVideo.setAttribute('loop', '');
+const api = globalThis.browser || globalThis.chrome;
 
-	// If the video is finished, check if the comments are open.
-	const comments = document.querySelector(COMMENTS_SELECTOR);
-	if (comments && comments.getBoundingClientRect().x > 0) {
-		if (!scrollOnCommentsCheck) {
-			// Only check if scrollOnCommentsCheck is false, otherwise always scroll
-			let intervalComments = setInterval(async () => {
-				if (!comments.getBoundingClientRect().x) {
-					await scrollToNextShort();
-					clearInterval(intervalComments);
-				}
-			}, 100);
-			return;
-		} else {
-			// If the comments are open and the user wants to scroll on comments, close the comments (removed feature, so always scroll)
-		}
-	}
-	await scrollToNextShort();
-}
-async function scrollToNextShort() {
-	const currentVideoParent = getParentVideo();
-	if (!currentVideoParent) return;
-	const currentVideo = currentVideoParent.querySelector('video');
-	if (!applicationIsOn) return currentVideo?.setAttribute('loop', '');
+// State Variables
+let applicationIsOn = true;
+let isScrolling = false;
+let lastRecordedTime = 0;
+let currentVideo = null;
+let checkInterval = null;
 
-	scrollingIsDone = false;
-	const nextVideoParent = document.getElementById(`${Number(currentVideoParent?.id) + 1}`);
-	if (nextVideoParent) {
-		nextVideoParent.scrollIntoView({
-			behavior: 'smooth',
-			block: 'center',
-			inline: 'center',
-		});
-	} else {
-		const nextButton = document.querySelector(NEXT_VIDEO_BUTTON_SELECTOR);
-		if (nextButton) {
-			nextButton.click();
-		} else {
-			currentVideo?.setAttribute('loop', '');
+// Helper: Check if current page is YouTube Shorts
+function isShortsPage() {
+	return (
+		window.location.pathname.includes('/shorts') ||
+		window.location.pathname.includes('/hashtag/shorts') ||
+		Boolean(document.querySelector('ytd-shorts'))
+	);
+}
+
+// Helper: Get active video element
+function getActiveVideo() {
+	// 1. Inside active reel renderer
+	const activeReel = document.querySelector('ytd-reel-video-renderer[is-active]');
+	if (activeReel) {
+		const vid = activeReel.querySelector('video');
+		if (vid) return vid;
+	}
+
+	// 2. Currently playing video
+	const allVideos = [...document.querySelectorAll('video')];
+	const playing = allVideos.find((v) => !v.paused && v.duration > 0);
+	if (playing) return playing;
+
+	// 3. Any video with valid duration
+	return allVideos.find((v) => v.duration > 0) || allVideos[0] || null;
+}
+
+// Click the next button inside #navigation-button-down
+function clickNextButton() {
+	const selectors = [
+		'#navigation-button-down button',
+		'#navigation-button-down > ytd-button-renderer > yt-button-shape > button',
+		'#navigation-button-down yt-button-shape button',
+		'#navigation-button-down ytd-button-renderer',
+		'#navigation-button-down',
+		'button[aria-label="Next video"]',
+		'button[aria-label="Next Video"]'
+	];
+
+	for (const sel of selectors) {
+		const el = document.querySelector(sel);
+		if (el) {
+			console.log(`[Auto-Scroll] Triggered next button via '${sel}'`);
+			el.click();
+			return true;
 		}
 	}
+
+	console.warn('[Auto-Scroll] Could not find next button in DOM');
+	return false;
+}
+
+// Expose on window for easy DevTools console testing
+window.clickNextShortButton = clickNextButton;
+
+// Show subtle floating toast notification on screen
+function showToast(message, isSuccess = true) {
+	const existingToast = document.getElementById('yt-shorts-scroller-toast');
+	if (existingToast) existingToast.remove();
+
+	const toast = document.createElement('div');
+	toast.id = 'yt-shorts-scroller-toast';
+	toast.innerText = message;
+	Object.assign(toast.style, {
+		position: 'fixed',
+		bottom: '24px',
+		right: '24px',
+		backgroundColor: isSuccess ? 'rgba(46, 125, 50, 0.92)' : 'rgba(33, 33, 33, 0.92)',
+		color: '#ffffff',
+		padding: '10px 18px',
+		borderRadius: '8px',
+		fontSize: '14px',
+		fontWeight: '600',
+		fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+		zIndex: '999999',
+		boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+		pointerEvents: 'none',
+		transition: 'opacity 0.3s ease, transform 0.3s ease',
+		opacity: '0',
+		transform: 'translateY(10px)'
+	});
+
+	document.body.appendChild(toast);
+	requestAnimationFrame(() => {
+		toast.style.opacity = '1';
+		toast.style.transform = 'translateY(0)';
+	});
+
 	setTimeout(() => {
-		// Hardcoded timeout to make sure the video is scrolled before other scrolls are allowed
-		scrollingIsDone = true;
-	}, 700);
+		toast.style.opacity = '0';
+		toast.style.transform = 'translateY(10px)';
+		setTimeout(() => toast.remove(), 300);
+	}, 1600);
 }
-function checkIfValidVideo() {
-	const currentVideoParent = getParentVideo();
-	const currentVideo = currentVideoParent?.querySelector('video');
-	if (!currentVideo) return false;
-	if (!applicationIsOn) {
-		currentVideo.setAttribute('loop', '');
-		return false;
-	}
-	return true; // Always true now, filters removed
-}
-// Helper function to get the parent of the current short playing/played
-function getParentVideo() {
-	const VIDEOS_LIST = [...document.querySelectorAll(VIDEOS_LIST_SELECTOR)];
-	return VIDEOS_LIST.find((e) => {
-		return e.hasAttribute('is-active') && e.querySelector("#shorts-container video[tabindex='-1']");
-	});
-}
-// Sets up the application with the settings from chrome storage
-// Checks if the application is on and if it is, starts the application
-// Creates an Interval to check for new shorts every 100ms
-(function initiate() {
-	chrome.storage.local.get(['applicationIsOn']).then(async (result) => {
-		if (result['applicationIsOn'] == null) {
-			return startAutoScrolling();
-		}
-		if (result['applicationIsOn']) await startAutoScrolling();
-	});
-	setInterval(checkForNewShort, 100);
-})();
 
-// Listens for toggle application from the popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+// Action when short has genuinely finished
+function onVideoCompleted(reason) {
+	if (!applicationIsOn || isScrolling || !isShortsPage()) return;
+
+	console.log(`[Auto-Scroll] Short finished (${reason})! Advancing to next Short...`);
+	isScrolling = true;
+	lastRecordedTime = 0;
+
+	clickNextButton();
+
+	// Debounce to allow YouTube to transition to the new short
+	setTimeout(() => {
+		isScrolling = false;
+	}, 1200);
+}
+
+// Check if the video has actually finished (no premature cutoff)
+function checkCompletion(video) {
+	if (!video || !video.duration || video.duration <= 0) return;
+
+	// 1. Native HTML5 ended property
+	if (video.ended) {
+		onVideoCompleted('video.ended === true');
+		return;
+	}
+
+	// 2. Exact end of playback reached
+	if (video.currentTime >= video.duration) {
+		onVideoCompleted('currentTime >= duration');
+		return;
+	}
+
+	// 3. Loop wraparound detection:
+	// YouTube resets currentTime from near duration back to 0 when it loops
+	const wasNearEnd = lastRecordedTime > 0 && lastRecordedTime >= video.duration - 0.8;
+	const loopedBackToStart = video.currentTime < 0.5 && video.currentTime < lastRecordedTime - 1.0;
+
+	if (wasNearEnd && loopedBackToStart) {
+		onVideoCompleted('loop wraparound detected');
+		return;
+	}
+
+	// 4. Progress bar / scrubber completed (100%)
+	const scrubber = document.querySelector('.ytPlayerProgressBarDragContainer[role="slider"]');
+	if (scrubber) {
+		const val = parseFloat(scrubber.getAttribute('aria-valuenow'));
+		if (val >= 100) {
+			onVideoCompleted('scrubber aria-valuenow 100%');
+			return;
+		}
+	}
+
+	// Record current time for the next frame check
+	lastRecordedTime = video.currentTime;
+}
+
+// Video ended event listener
+function handleVideoEnded() {
+	if (!applicationIsOn) return;
+	onVideoCompleted('ended event fired');
+}
+
+// Video timeupdate watcher
+function handleTimeUpdate(e) {
+	if (!applicationIsOn || isScrolling) return;
+	checkCompletion(e.target);
+}
+
+// Reset tracking when new video loads or plays from start
+function handlePlaying(e) {
+	const vid = e.target;
+	if (vid && vid.currentTime < 1.0) {
+		lastRecordedTime = 0;
+	}
+}
+
+// Monitor video element and attach listeners
+function monitorVideo() {
+	if (!isShortsPage()) return;
+
+	const video = getActiveVideo();
+	if (!video) return;
+
+	if (video !== currentVideo) {
+		if (currentVideo) {
+			currentVideo.removeEventListener('ended', handleVideoEnded);
+			currentVideo.removeEventListener('timeupdate', handleTimeUpdate);
+			currentVideo.removeEventListener('playing', handlePlaying);
+		}
+
+		currentVideo = video;
+		lastRecordedTime = currentVideo.currentTime || 0;
+
+		currentVideo.addEventListener('ended', handleVideoEnded);
+		currentVideo.addEventListener('timeupdate', handleTimeUpdate);
+		currentVideo.addEventListener('playing', handlePlaying);
+	}
+
+	// Manage loop attribute
+	if (applicationIsOn) {
+		if (currentVideo.loop || currentVideo.hasAttribute('loop')) {
+			currentVideo.loop = false;
+			currentVideo.removeAttribute('loop');
+		}
+	} else {
+		if (!currentVideo.loop || !currentVideo.hasAttribute('loop')) {
+			currentVideo.loop = true;
+			currentVideo.setAttribute('loop', '');
+		}
+	}
+}
+
+// Periodic check: monitors video and detects completion every 100ms
+function checkStatus() {
+	if (!isShortsPage()) return;
+
+	monitorVideo();
+
+	if (applicationIsOn && !isScrolling && currentVideo) {
+		checkCompletion(currentVideo);
+	}
+}
+
+// Toggle auto-scrolling
+async function toggleAutoScroll(forcedState = null) {
+	const newState = forcedState !== null ? forcedState : !applicationIsOn;
+	applicationIsOn = newState;
+
+	await api.storage.local.set({ applicationIsOn: newState });
+
+	if (currentVideo) {
+		if (applicationIsOn) {
+			currentVideo.loop = false;
+			currentVideo.removeAttribute('loop');
+		} else {
+			currentVideo.loop = true;
+			currentVideo.setAttribute('loop', '');
+		}
+	}
+
+	showToast(`Auto-Scroll: ${applicationIsOn ? 'ON' : 'OFF'}`, applicationIsOn);
+}
+
+// Keyboard shortcut listener (Shift + S)
+window.addEventListener('keydown', (e) => {
+	const target = e.target;
+	if (
+		target.tagName === 'INPUT' ||
+		target.tagName === 'TEXTAREA' ||
+		target.isContentEditable
+	) {
+		return;
+	}
+
+	if (e.shiftKey && (e.code === 'KeyS' || e.key === 'S' || e.key === 's')) {
+		e.preventDefault();
+		toggleAutoScroll();
+	}
+});
+
+// Storage sync listener
+api.storage.onChanged.addListener((changes, area) => {
+	if (area === 'local' && changes.applicationIsOn !== undefined) {
+		applicationIsOn = changes.applicationIsOn.newValue;
+		if (currentVideo) {
+			if (applicationIsOn) {
+				currentVideo.loop = false;
+				currentVideo.removeAttribute('loop');
+			} else {
+				currentVideo.loop = true;
+				currentVideo.setAttribute('loop', '');
+			}
+		}
+	}
+});
+
+// Message listener from popup
+api.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	if (message.toggle) {
-		chrome.storage.local.get(['applicationIsOn']).then(async (result) => {
-			if (!result['applicationIsOn']) await startAutoScrolling();
-			if (result['applicationIsOn']) await stopAutoScrolling();
-			sendResponse({ success: true });
-		});
+		const desiredState =
+			message.state !== undefined ? message.state : !applicationIsOn;
+		toggleAutoScroll(desiredState);
+		sendResponse({ success: true, applicationIsOn });
 	}
 	return true;
 });
+
+// SPA Navigation listener (YouTube page transitions)
+window.addEventListener('yt-navigate-finish', () => {
+	if (isShortsPage()) {
+		lastRecordedTime = 0;
+		monitorVideo();
+	}
+});
+
+// Periodic monitoring loop (checks every 100ms)
+function startMonitoring() {
+	if (checkInterval) clearInterval(checkInterval);
+	checkInterval = setInterval(checkStatus, 100);
+}
+
+// Initialization
+(async function init() {
+	try {
+		const result = await api.storage.local.get(['applicationIsOn']);
+		applicationIsOn = result.applicationIsOn ?? true;
+	} catch (err) {
+		applicationIsOn = true;
+	}
+
+	startMonitoring();
+})();
